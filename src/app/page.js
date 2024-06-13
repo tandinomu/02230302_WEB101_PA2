@@ -10,7 +10,6 @@ const Pokedex = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPokemon, setSelectedPokemon] = useState(null);
   const [error, setError] = useState(null);
-  // Replacing caughtPokemon state and its functions with useStore hook
   const { caughtPokemons, addCaughtPokemon, removeCaughtPokemon, clearCaughtPokemons } = useStore();
   const [showCaughtPokemons, setShowCaughtPokemons] = useState(false);
   const [page, setPage] = useState(1);
@@ -22,8 +21,16 @@ const Pokedex = () => {
         const response = await fetch(`https://pokeapi.co/api/v2/pokemon?limit=20&offset=${(page - 1) * 20}`);
         if (response.ok) {
           const data = await response.json();
-          setPokemonList(data.results);
           setTotalPages(Math.ceil(data.count / 20));
+          const pokemonDetails = await Promise.all(data.results.map(async (pokemon) => {
+            const response = await fetch(pokemon.url);
+            if (response.ok) {
+              return await response.json();
+            } else {
+              throw new Error(`Failed to fetch details for ${pokemon.name}`);
+            }
+          }));
+          setPokemonList(pokemonDetails);
           setError(null);
         } else {
           console.error("Failed to fetch Pokémon list:", response.status);
@@ -38,9 +45,9 @@ const Pokedex = () => {
     fetchPokemonList();
   }, [page]);
 
-  const fetchPokemonDetails = async (pokemonName) => {
+  const handleSearch = async () => {
     try {
-      const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokemonName.toLowerCase()}`);
+      const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${searchTerm.toLowerCase()}`);
       if (response.ok) {
         const data = await response.json();
         setSelectedPokemon(data);
@@ -57,25 +64,32 @@ const Pokedex = () => {
     }
   };
 
-  const handleSearch = async () => {
-    await fetchPokemonDetails(searchTerm);
+  const handlePokemonCardClick = async (pokemon) => {
+    setSelectedPokemon(pokemon);
   };
 
-  const handlePokemonCardClick = async (pokemonName) => {
-    await fetchPokemonDetails(pokemonName);
-  };
-
-  const handleCaughtClick = (pokemonName) => {
-    if (!caughtPokemons.includes(pokemonName)) {
-      addCaughtPokemon(pokemonName);
+  const handleCaughtClick = (pokemon) => {
+    if (!selectedPokemon) {
+      // If selectedPokemon is null, it means we are on the homepage
+      if (!caughtPokemons.includes(pokemon.name)) {
+        addCaughtPokemon(pokemon.name);
+      }
+    } else {
+      // If selectedPokemon is not null, it means we are in the details page
+      if (!caughtPokemons.includes(selectedPokemon.name)) {
+        addCaughtPokemon(selectedPokemon.name);
+      }
     }
-    // Hide the selected Pokemon details when catching a new Pokemon
-    setSelectedPokemon(null);
   };
 
   const handleRelease = (pokemonName) => {
     removeCaughtPokemon(pokemonName);
+    // If the released Pokemon is the currently selected Pokemon, reset selectedPokemon to null
+    if (selectedPokemon && selectedPokemon.name === pokemonName) {
+      setSelectedPokemon(null);
+    }
   };
+  
 
   const handleShowCaughtPokemons = () => {
     setShowCaughtPokemons(true);
@@ -83,11 +97,11 @@ const Pokedex = () => {
 
   const handleBackToHome = () => {
     setSelectedPokemon(null);
-    setShowCaughtPokemons(false); // Added to return to the home page
+    setShowCaughtPokemons(false);
   };
 
   const handleBackFromCaughtPokemons = () => {
-    setShowCaughtPokemons(false); // Added to return to the home page
+    setShowCaughtPokemons(false);
   };
 
   return (
@@ -111,17 +125,24 @@ const Pokedex = () => {
         <div>
           <h2>Caught Pokémon:</h2>
           <div className="flex flex-wrap justify-center">
-            {caughtPokemons.map((pokemonName, index) => (
-              <div key={index} className="m-2 text-center border border-gray-300 rounded-lg p-4" style={{ width: '16.666%' }}>
-                <img
-                  src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemonList.findIndex(pokemon => pokemon.name === pokemonName) + 1}.png`}
-                  alt={pokemonName}
-                  className="w-100 rounded-lg shadow-md mb-2 mx-auto"
-                />
-                <p className="capitalize text-lg font-bold text-gray-700">{pokemonName}</p>
-                <Button onClick={() => handleRelease(pokemonName)} variant="primary" style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', border: '1px solid #ccc' }}>Release</Button>
-              </div>
-            ))}
+            {caughtPokemons.map((pokemonName, index) => {
+              const pokemon = pokemonList.find(p => p.name === pokemonName);
+              return (
+                <div key={index} className="m-2 text-center border border-gray-300 rounded-lg p-4" style={{ width: '16.666%' }}>
+                  {pokemon && (
+                    <>
+                      <img
+                        src={pokemon.sprites.front_default}
+                        alt={pokemonName}
+                        className="w-100 rounded-lg shadow-md mb-2 mx-auto"
+                      />
+                      <p className="capitalize text-lg font-bold text-gray-700">{pokemonName}</p>
+                      <Button onClick={() => handleRelease(pokemonName)} variant="primary" style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', border: '1px solid #ccc' }}>Release</Button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <Button onClick={handleBackFromCaughtPokemons} variant="primary" className="mt-4" style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', border: '1px solid #ccc' }}>Back</Button>
         </div>
@@ -135,14 +156,14 @@ const Pokedex = () => {
             <p><strong>Type:</strong> {selectedPokemon.types.map((type) => type.type.name).join(', ')}</p>
             <p><strong>Abilities:</strong> {selectedPokemon.abilities.map((ability) => ability.ability.name).join(', ')}</p>
             <p><strong>Stats:</strong></p>
-            <div className="flex justify-center"> {/* Centering stats options */}
+            <div className="flex justify-center">
               <ul className="list-none p-0 text-left">
                 {selectedPokemon.stats.map((stat, index) => (
                   <li key={index}><strong>{stat.stat.name}:</strong> {stat.base_stat}</li>
                 ))}
               </ul>
             </div>
-            <Button onClick={() => handleCaughtClick(selectedPokemon.name)} variant="primary" style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', border: '1px solid #ccc' }}>Catch</Button>
+            <Button onClick={() => handleCaughtClick(selectedPokemon)} variant="primary" style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', border: '1px solid #ccc' }}>Catch</Button>{' '}
             <Button onClick={handleBackToHome} variant="primary" className="mt-4" style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', border: '1px solid #ccc' }}>Back</Button>
           </div>
         </div>
@@ -150,14 +171,14 @@ const Pokedex = () => {
         <div>
           <div className="flex flex-wrap justify-center">
             {pokemonList.map((pokemon, index) => (
-              <div key={index} className="m-2 text-center cursor-pointer border border-gray-300 rounded-lg p-4" onClick={() => handlePokemonCardClick(pokemon.name)} style={{ width: '16.666%' }}>
+              <div key={index} className="m-2 text-center cursor-pointer border border-gray-300 rounded-lg p-4" onClick={() => handlePokemonCardClick(pokemon)} style={{ width: '16.666%' }}>
                 <img
-                  src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${index + 1}.png`}
+                  src={pokemon.sprites.front_default}
                   alt={pokemon.name}
                   className="w-100 rounded-lg shadow-md mb-2 mx-auto"
                 />
                 <p className="capitalize text-lg font-bold text-gray-700">{pokemon.name}</p>
-                <Button onClick={() => handleCaughtClick(pokemon.name)} variant="primary" style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', border: '1px solid #ccc' }}>Catch</Button>
+                <Button onClick={() => handleCaughtClick(pokemon)} variant="primary" style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', border: '1px solid #ccc' }}>Catch</Button>
               </div>
             ))}
           </div>
